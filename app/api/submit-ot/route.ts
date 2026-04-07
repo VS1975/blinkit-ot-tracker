@@ -7,6 +7,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { captainId, captainName, purpose, otEntry } = body;
 
+    console.log('Received OT entry:', { captainId, captainName, purpose, otEntry });
+    console.log('Firebase config check:', {
+      hasApiKey: !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+      hasProjectId: !!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+    });
+
     // Validate required fields
     if (!captainId || !captainName || !purpose || !otEntry) {
       return NextResponse.json(
@@ -33,18 +39,21 @@ export async function POST(request: NextRequest) {
       timestamp: serverTimestamp(),
     });
 
+    console.log('Document saved with ID:', docRef.id);
+
     return NextResponse.json(
-      { 
-        success: true, 
+      {
+        success: true,
         id: docRef.id,
-        message: 'OT entry submitted successfully' 
+        message: 'OT entry submitted successfully'
       },
       { status: 201 }
     );
   } catch (error) {
     console.error('Error submitting OT entry:', error);
+    console.error('Error details:', JSON.stringify(error, null, 2));
     return NextResponse.json(
-      { error: 'Failed to submit OT entry' },
+      { error: 'Failed to submit OT entry', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
