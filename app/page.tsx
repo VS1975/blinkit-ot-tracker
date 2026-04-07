@@ -19,13 +19,19 @@ export default function Home() {
     setMessage({ type: '', text: '' });
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
       const response = await fetch('/api/submit-ot', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(formData),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       const data = await response.json();
 
@@ -41,6 +47,7 @@ export default function Home() {
         setMessage({ type: 'error', text: data.error || 'Failed to submit OT entry' });
       }
     } catch (error) {
+      console.error('Submit error:', error);
       setMessage({ type: 'error', text: 'An error occurred. Please try again.' });
     } finally {
       setIsSubmitting(false);
