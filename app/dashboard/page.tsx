@@ -137,6 +137,31 @@ export default function Dashboard() {
     router.push('/admin');
   };
 
+  // Handle delete entry
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this entry?')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/delete-ot?id=${id}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        // Refresh data
+        const dataResponse = await fetch('/api/ot-entries');
+        const data = await dataResponse.json();
+        setEntries(data.entries);
+        setFilteredEntries(groupByMonth(data.entries));
+      } else {
+        alert('Failed to delete entry');
+      }
+    } catch (error) {
+      alert('An error occurred while deleting');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
@@ -263,10 +288,16 @@ export default function Dashboard() {
                                 </p>
                               )}
                             </div>
-                            <div className="ml-3">
+                            <div className="ml-3 flex items-center gap-3">
                               <span className="text-sm font-bold text-gray-700 dark:text-gray-300">
                                 {extractHours(entry.otEntry)} HR
                               </span>
+                              <button
+                                onClick={() => handleDelete(entry.id)}
+                                className="px-2 py-1 text-xs bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 rounded hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
+                              >
+                                Delete
+                              </button>
                             </div>
                           </div>
                         ))}
