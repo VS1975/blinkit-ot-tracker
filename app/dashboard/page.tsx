@@ -13,15 +13,20 @@ interface OTEntry {
   timestamp: Date | null;
 }
 
-interface GroupedData {
-  captainName: string;
+interface MonthGroup {
+  month: string;
+  year: number;
   entries: OTEntry[];
+  captains: Record<string, {
+    entries: OTEntry[];
+    totalHours: number;
+  }>;
   totalHours: number;
 }
 
 export default function Dashboard() {
   const [entries, setEntries] = useState<OTEntry[]>([]);
-  const [filteredEntries, setFilteredEntries] = useState<GroupedData[]>([]);
+  const [filteredEntries, setFilteredEntries] = useState<MonthGroup[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -34,22 +39,55 @@ export default function Dashboard() {
     return match ? parseInt(match[1], 10) : 0;
   };
 
-  // Group entries by captain name and calculate totals
-  const groupByCaptain = (data: OTEntry[]): GroupedData[] => {
-    const grouped: Record<string, OTEntry[]> = {};
+  // Get month name from date
+  const getMonthName = (date: Date): string => {
+    return date.toLocaleString('default', { month: 'long' });
+  };
+
+  // Group entries by month and then by captain
+  const groupByMonth = (data: OTEntry[]): MonthGroup[] => {
+    const monthlyGroups: Record<string, MonthGroup> = {};
 
     data.forEach(entry => {
-      if (!grouped[entry.captainName]) {
-        grouped[entry.captainName] = [];
+      if (!entry.timestamp) return;
+
+      const date = new Date(entry.timestamp);
+      const month = getMonthName(date);
+      const year = date.getFullYear();
+      const key = `${month}-${year}`;
+
+      if (!monthlyGroups[key]) {
+        monthlyGroups[key] = {
+          month,
+          year,
+          entries: [],
+          captains: {},
+          totalHours: 0,
+        };
       }
-      grouped[entry.captainName].push(entry);
+
+      monthlyGroups[key].entries.push(entry);
+
+      // Group by captain within the month
+      if (!monthlyGroups[key].captains[entry.captainName]) {
+        monthlyGroups[key].captains[entry.captainName] = {
+          entries: [],
+          totalHours: 0,
+        };
+      }
+
+      monthlyGroups[key].captains[entry.captainName].entries.push(entry);
+      const hours = extractHours(entry.otEntry);
+      monthlyGroups[key].captains[entry.captainName].totalHours += hours;
+      monthlyGroups[key].totalHours += hours;
     });
 
-    return Object.entries(grouped).map(([captainName, entries]) => ({
-      captainName,
-      entries,
-      totalHours: entries.reduce((sum, entry) => sum + extractHours(entry.otEntry), 0),
-    })).sort((a, b) => b.totalHours - a.totalHours); // Sort by total hours descending
+    // Convert to array and sort by date (most recent first)
+    return Object.values(monthlyGroups).sort((a, b) => {
+      const dateA = new Date(`${a.month} 1, ${a.year}`);
+      const dateB = new Date(`${b.month} 1, ${b.year}`);
+      return dateB.getTime() - dateA.getTime();
+    });
   };
 
   // Fetch data
@@ -57,17 +95,17 @@ export default function Dashboard() {
     const fetchData = async () => {
       try {
         const response = await fetch('/api/ot-entries');
-        
+
         if (response.status === 401) {
           router.push('/admin');
           return;
         }
 
         const data = await response.json();
-        
+
         if (response.ok) {
           setEntries(data.entries);
-          setFilteredEntries(groupByCaptain(data.entries));
+          setFilteredEntries(groupByMonth(data.entries));
         } else {
           setError(data.error || 'Failed to fetch data');
         }
@@ -84,12 +122,12 @@ export default function Dashboard() {
   // Handle search/filter
   useEffect(() => {
     if (searchTerm.trim() === '') {
-      setFilteredEntries(groupByCaptain(entries));
+      setFilteredEntries(groupByMonth(entries));
     } else {
       const filtered = entries.filter(entry =>
         entry.captainName.toLowerCase().includes(searchTerm.toLowerCase())
       );
-      setFilteredEntries(groupByCaptain(filtered));
+      setFilteredEntries(groupByMonth(filtered));
     }
   }, [searchTerm, entries]);
 
@@ -163,53 +201,75 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="grid gap-6">
-            {filteredEntries.map((group) => (
+            {filteredEntries.map((monthGroup) => (
               <div
-                key={group.captainName}
+                key={`${monthGroup.month}-${monthGroup.year}`}
                 className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6"
               >
-                {/* Captain Header */}
-                <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
-                  <h2 className="text-2xl font-bold text-gray-800 dark:text-white">
-                    {group.captainName}
+                {/* Month Header */}
+                <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+                  <h2 className="text-3xl font-bold text-gray-800 dark:text-white">
+                    {monthGroup.month} {monthGroup.year}
                   </h2>
                   <div className="text-right">
                     <p className="text-sm text-gray-600 dark:text-gray-400">Total Hours</p>
-                    <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
-                      {group.totalHours}
+                    <p className="text-4xl font-bold text-blue-600 dark:text-blue-400">
+                      {monthGroup.totalHours}
                     </p>
                   </div>
                 </div>
 
-                {/* Entries List */}
-                <div className="space-y-3">
-                  {group.entries.map((entry) => (
+                {/* Captains within the month */}
+                <div className="space-y-4">
+                  {Object.entries(monthGroup.captains).map(([captainName, captainData]) => (
                     <div
-                      key={entry.id}
-                      className="flex justify-between items-start p-4 bg-gray-50 dark:bg-gray-700 rounded-lg"
+                      key={captainName}
+                      className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4"
                     >
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <span className="px-3 py-1 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded-full">
-                            {entry.purpose}
-                          </span>
-                          <span className="text-sm text-gray-500 dark:text-gray-400">
-                            ID: {entry.captainId}
+                      {/* Captain Header */}
+                      <div className="flex justify-between items-center mb-3">
+                        <h3 className="text-xl font-semibold text-gray-800 dark:text-white">
+                          {captainName}
+                        </h3>
+                        <div className="text-right">
+                          <span className="text-2xl font-bold text-green-600 dark:text-green-400">
+                            {captainData.totalHours} HR
                           </span>
                         </div>
-                        <p className="text-gray-800 dark:text-gray-200 font-medium">
-                          {entry.otEntry}
-                        </p>
-                        {entry.timestamp && (
-                          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                            {new Date(entry.timestamp).toLocaleString()}
-                          </p>
-                        )}
                       </div>
-                      <div className="ml-4">
-                        <span className="text-lg font-bold text-gray-700 dark:text-gray-300">
-                          {extractHours(entry.otEntry)} HR
-                        </span>
+
+                      {/* Entries for this captain */}
+                      <div className="space-y-2">
+                        {captainData.entries.map((entry) => (
+                          <div
+                            key={entry.id}
+                            className="flex justify-between items-start p-3 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-600"
+                          >
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded">
+                                  {entry.purpose}
+                                </span>
+                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                  ID: {entry.captainId}
+                                </span>
+                              </div>
+                              <p className="text-sm text-gray-800 dark:text-gray-200">
+                                {entry.otEntry}
+                              </p>
+                              {entry.timestamp && (
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                  {new Date(entry.timestamp).toLocaleString()}
+                                </p>
+                              )}
+                            </div>
+                            <div className="ml-3">
+                              <span className="text-sm font-bold text-gray-700 dark:text-gray-300">
+                                {extractHours(entry.otEntry)} HR
+                              </span>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}
@@ -223,7 +283,7 @@ export default function Dashboard() {
         {filteredEntries.length > 0 && (
           <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Total Captains</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Total Months</p>
               <p className="text-3xl font-bold text-gray-800 dark:text-white">
                 {filteredEntries.length}
               </p>
@@ -237,7 +297,7 @@ export default function Dashboard() {
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Total Hours</p>
               <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
-                {filteredEntries.reduce((sum, group) => sum + group.totalHours, 0)}
+                {filteredEntries.reduce((sum, month) => sum + month.totalHours, 0)}
               </p>
             </div>
           </div>
